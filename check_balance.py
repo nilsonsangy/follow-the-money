@@ -1,9 +1,15 @@
+import os
 import requests
 from web3 import Web3
 from detect_coin import detect_coin  # Import the coin detection function
 
-# Replace with your provider endpoint (e.g., Infura, Alchemy, etc.)
-INFURA_URL = 'https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID'
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get the Infura URL from environment variables
+INFURA_URL = os.getenv('INFURA_URL')
 # Create a Web3 instance using the HTTP provider
 w3 = Web3(Web3.HTTPProvider(INFURA_URL))
 
@@ -17,12 +23,13 @@ def get_eth_balance(address):
     Raises:
         ValueError: If the address is invalid
     """
-    if not w3.isAddress(address):
+    # Use Web3's built-in is_checksum_address or is_address depending on web3.py version
+    if not Web3.is_address(address):
         raise ValueError('Invalid Ethereum address')
     # Get balance in Wei (smallest unit of Ether)
     balance_wei = w3.eth.get_balance(address)
     # Convert Wei to Ether
-    balance_eth = w3.fromWei(balance_wei, 'ether')
+    balance_eth = Web3.from_wei(balance_wei, 'ether')
     return balance_eth
 
 def get_btc_balance(address):
