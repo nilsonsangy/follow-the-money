@@ -2,6 +2,7 @@ import os
 import requests
 from web3 import Web3
 from detect_coin import detect_coin  # Import the coin detection function
+from convert_currency import get_coin_price
 
 from dotenv import load_dotenv
 
@@ -30,6 +31,13 @@ def get_eth_balance(address):
     balance_wei = w3.eth.get_balance(address)
     # Convert Wei to Ether
     balance_eth = Web3.from_wei(balance_wei, 'ether')
+    # Get ETH price in USD
+    try:
+        eth_price_usd = get_coin_price('ETH', 'usd')
+        value_usd = float(balance_eth) * eth_price_usd
+        print(f'Wallet balance: {balance_eth} ETH (~${value_usd:,.2f} USD)')
+    except Exception as e:
+        print(f'Could not fetch ETH price in USD: {e}')
     return balance_eth
 
 def get_btc_balance(address):
@@ -49,13 +57,26 @@ def get_btc_balance(address):
     data = response.json()
     # Balance is in satoshis, convert to BTC
     balance_btc = data['chain_stats']['funded_txo_sum'] - data['chain_stats']['spent_txo_sum']
-    return balance_btc / 1e8
+    balance_btc = balance_btc / 1e8
+    # Get BTC price in USD
+    try:
+        btc_price_usd = get_coin_price('BTC', 'usd')
+        value_usd = float(balance_btc) * btc_price_usd
+        print(f'Wallet balance: {balance_btc} BTC (~${value_usd:,.2f} USD)')
+    except Exception as e:
+        print(f'Could not fetch BTC price in USD: {e}')
+    return balance_btc
 
 def get_xmr_balance(address):
     """
     Monero does not support public balance queries due to privacy features.
     This function will always return a message explaining this limitation.
     """
+    try:
+        xmr_price_usd = get_coin_price('XMR', 'usd')
+        print(f'If you know your XMR balance, 1 XMR = ${xmr_price_usd:,.2f} USD')
+    except Exception as e:
+        print(f'Could not fetch XMR price in USD: {e}')
     raise Exception('Monero balances cannot be checked publicly due to privacy features.')
 
 if __name__ == '__main__':
@@ -74,11 +95,9 @@ if __name__ == '__main__':
         print(f'Detected coin: {coin}')
     try:
         if coin == 'Bitcoin':
-            balance = get_btc_balance(address)
-            print(f'Wallet balance: {balance} BTC')
+            get_btc_balance(address)
         elif coin == 'Ethereum':
-            balance = get_eth_balance(address)
-            print(f'Wallet balance: {balance} ETH')
+            get_eth_balance(address)
         elif coin == 'Monero':
             get_xmr_balance(address)
         else:
