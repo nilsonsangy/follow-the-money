@@ -1,6 +1,12 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .env
+.pytest_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
