@@ -12,8 +12,10 @@ from follow_the_money.config import select_provider
 from follow_the_money.errors import MissingKeyError
 
 OPEN = {"bitcoin": "mempool.space", "ethereum": "blockscout"}
+# Keyed providers that also answer without a key.
+OPTIONAL_KEY = {"blockchain.com"}
 KEYED = {
-    "bitcoin": ("blockchair", "BLOCKCHAIR_API_KEY"),
+    "bitcoin": ("blockchain.com", "BLOCKCHAIN_API_KEY"),
     "ethereum": ("etherscan", "ETHERSCAN_API_KEY"),
     "price": ("coingecko", "COINGECKO_API_KEY"),
 }
@@ -71,6 +73,11 @@ def test_provider_selection(chain, env, ask_keyed):
     elif has_key:
         assert sel.provider == keyed_name
         assert sel.requires_key == variable
+        assert sel.notice is None
+    elif keyed_name in OPTIONAL_KEY:
+        # Optional key: the requested provider answers without it.
+        assert sel.provider == keyed_name
+        assert sel.requires_key is None
         assert sel.notice is None
     else:
         # Missing key with an open equivalent: fall back and name it.

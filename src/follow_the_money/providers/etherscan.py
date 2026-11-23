@@ -11,6 +11,7 @@ creation of, a contract), ``token`` (ERC-20 transfer) and ``internal``
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -27,6 +28,9 @@ CHAIN_ID = "1"
 KEY_VARIABLE = "ETHERSCAN_API_KEY"
 WEI_PER_ETH = Decimal(10) ** 18
 MAX_PAGE_SIZE = 1000  # upper bound for one request, independent of ``limit``
+# The free plan allows 3 calls per second, counted on the server side. Half a
+# second between requests keeps a margin for network jitter without retrying.
+MIN_INTERVAL = 0.5
 
 
 def _bad(reason: str) -> ProviderError:
@@ -149,13 +153,21 @@ class EtherscanProvider:
         api_key: str,
         base_url: str = BASE_URL,
         client: httpx.Client | None = None,
+        min_interval: float | None = None,
     ) -> None:
         if not api_key:
             raise ValueError(f"{KEY_VARIABLE} must not be empty")
         self._key = api_key
+        # Pacing applies to real network use. An injected client (tests) is not paced.
+        self._min_interval = min_interval if min_interval is not None else (MIN_INTERVAL if client is None else 0.0)
+        self._last_call = 0.0
         self._http = HttpClient(NAME, base_url, secrets=(api_key,), client=client)
 
     def _query(self, action: str, address: str, **extra: Any) -> Any:
+        wait = self._last_call + self._min_interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_call = time.monotonic()
         params = {
             "chainid": CHAIN_ID,
             "module": "account",

@@ -13,14 +13,14 @@ import pytest
 from hypothesis import given, strategies as st
 
 from follow_the_money.errors import ProviderError, RateLimitError
-from follow_the_money.providers import blockchair, etherscan, mempool_space
+from follow_the_money.providers import blockchain_com, etherscan, mempool_space
 from follow_the_money.providers._http import HttpClient
 
 # Keys carry a fixed prefix so they cannot collide with words in the message.
 keys = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=12, max_size=40).map(
     lambda s: "k3y" + s
 )
-provider_names = st.sampled_from([etherscan.NAME, blockchair.NAME, mempool_space.NAME])
+provider_names = st.sampled_from([etherscan.NAME, blockchain_com.NAME, mempool_space.NAME])
 error_statuses = st.sampled_from([400, 401, 403, 404, 429, 500, 502, 503])
 
 

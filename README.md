@@ -46,7 +46,7 @@
 
 `ftm` follows funds on public blockchains. Given an address, it identifies the coin, reports the balance, lists recent transactions, traces outgoing funds hop by hop, flags common obfuscation and scam shapes, and writes a Markdown evidence report. Bitcoin and Ethereum are supported for analysis. Litecoin and Monero addresses are recognized by `detect` only.
 
-Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. API keys are optional and enable Etherscan, Blockchair and CoinGecko.
+Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. API keys are optional and enable Etherscan and CoinGecko. Blockchain.com works with or without a key.
 
 Results are leads for manual verification. Every transaction in a report carries its hash, UTC date and source provider, so that each claim can be checked independently on a public explorer.
 
@@ -57,7 +57,7 @@ flowchart LR
     A[Address] --> D{detect}
     D -->|Bitcoin| B[mempool.space]
     D -->|Ethereum| E[Blockscout]
-    B -. key set and requested .-> BC[Blockchair]
+    B -. requested .-> BC[Blockchain.com]
     E -. key set and requested .-> ES[Etherscan]
     B --> N[Normalized transactions]
     E --> N
@@ -67,7 +67,7 @@ flowchart LR
     CG[CoinGecko] -->|historical USD price| C
 ```
 
-A keyed provider is used only when requested with `--provider` and its key is set. If the key is missing and an open equivalent exists, the open provider is used and a notice is written to the error stream. CoinGecko has no open equivalent, so `balance --usd` without `COINGECKO_API_KEY` fails with a message that names the variable and how to obtain it.
+A keyed provider is used only when requested with `--provider` (accepted by `balance`, `history`, `trace`, `patterns` and `report`) and its key is set. Blockchain.com is the exception: its key is optional, so it answers when requested even without `BLOCKCHAIN_API_KEY`, with the default limits. If the key of another keyed provider is missing and an open equivalent exists, the open provider is used and a notice is written to the error stream. CoinGecko has no open equivalent, so `balance --usd` without `COINGECKO_API_KEY` fails with a message that names the variable and how to obtain it.
 
 ## Quick start
 
@@ -98,24 +98,24 @@ A single `.env` file in the directory where `ftm` runs holds the optional API ke
 | Variable | Provider | Required |
 |---|---|---|
 | `ETHERSCAN_API_KEY` | Etherscan | No. Blockscout is used when absent |
-| `BLOCKCHAIR_API_KEY` | Blockchair | No. mempool.space is used when absent |
+| `BLOCKCHAIN_API_KEY` | Blockchain.com | No. Blockchain.com also answers without a key, with the default limits |
 | `COINGECKO_API_KEY` | CoinGecko (historical prices) | Only for `balance --usd` |
 
 The `.env` file is ignored by git. Key values are never committed, logged or printed: every URL, header and message is passed through `mask_secrets` before leaving the provider client, and the same masking applies to all command output and to reports.
 
 ### How to obtain the keys
 
-All three keys are free.
+All three keys are free, and none is required for Bitcoin or Ethereum analysis.
 
 1. **Etherscan.** Create an account and generate a key as described in the [Etherscan key guide](https://docs.etherscan.io/getting-an-api-key). One key covers the API V2 chains available on the free plan.
 2. **CoinGecko.** Create a Demo account and generate a Demo key as described in the [CoinGecko key guide](https://docs.coingecko.com/reference/setting-up-your-api-key).
-3. **Blockchair.** Request a key on the API plans page of the Blockchair website. That page rejects automated requests, so the link is not included here and the address is to be checked manually from the Blockchair homepage. Request limits and key usage are described in the [Blockchair API notes](https://github.com/Blockchair/Blockchair.Support/blob/master/API.md).
+3. **Blockchain.com.** Create an account and generate an Explorer API key, as described on the [Blockchain.com API plans page](https://www.blockchain.com/explorer/pricing). The key is sent in the `X-Explorer-Auth-Key` header, as documented in the [Explorer API reference](https://www.blockchain.com/explorer/docs).
 
 Copy each value into the matching line of `.env`, with no quotes and no spaces:
 
 ```text
 ETHERSCAN_API_KEY=your-value
-BLOCKCHAIR_API_KEY=your-value
+BLOCKCHAIN_API_KEY=your-value
 COINGECKO_API_KEY=your-value
 ```
 
@@ -125,8 +125,8 @@ Free limits change over time. The official documentation prevails over this tabl
 
 | Provider | Free limit | Source |
 |---|---|---|
-| Etherscan (API V2) | 3 calls/second and up to 100,000 calls/day, on selected chains. Requests are blocked at the daily limit | [Etherscan rate limits](https://docs.etherscan.io/resources/rate-limits) |
-| Blockchair | About 1,440 requests/day without a key, with a ceiling of 30 requests/minute. A key lifts the limit per plan | [Blockchair API notes](https://github.com/Blockchair/Blockchair.Support/blob/master/API.md). The official documentation site rejects automated requests, so the figures are to be confirmed manually on the Blockchair website |
+| Etherscan (API V2) | 3 calls/second and up to 100,000 calls/day, on selected chains. Requests are blocked at the daily limit. The client spaces its own requests 0.5 s apart to stay under the per-second limit | [Etherscan rate limits](https://docs.etherscan.io/resources/rate-limits) |
+| Blockchain.com (Explorer API) | On 2026-11-22, the response headers reported 5 requests/second and 1,000 requests/day both without a key and with a free key. The pricing page lists 3 requests/second and 300 requests/day for the free plan | [Blockchain.com API plans](https://www.blockchain.com/explorer/pricing), [Explorer API reference](https://www.blockchain.com/explorer/docs) |
 | CoinGecko (Demo plan) | 100 calls/minute. Historical data on the Basic plan is restricted to the past 2 years | [CoinGecko errors and rate limits](https://docs.coingecko.com/docs/common-errors-rate-limit), [Coin historical data](https://docs.coingecko.com/v3.0.1/reference/coins-id-history) |
 | mempool.space | Public instance, no key. Limits are not published as fixed figures | [mempool.space REST API](https://mempool.space/docs/api/rest) |
 | Blockscout | Public instance, no key. Limits depend on the instance | [Blockscout APIs](https://docs.blockscout.com/devs/apis) |
@@ -164,7 +164,7 @@ Shows the current balance.
 | Argument | Meaning |
 |---|---|
 | `address` | Bitcoin or Ethereum address |
-| `--provider NAME` | One of `mempool.space`, `blockscout`, `etherscan`, `blockchair`. Default: the open provider of the chain |
+| `--provider NAME` | One of `mempool.space`, `blockscout`, `etherscan`, `blockchain.com`. Default: the open provider of the chain |
 | `--usd` | Also shows the value in US dollars at today's price. Requires `COINGECKO_API_KEY` |
 
 ```powershell
@@ -184,9 +184,11 @@ Lists recent transactions, newest first, one per line: date (UTC), hash, kind, s
 |---|---|
 | `address` | Bitcoin or Ethereum address |
 | `--limit N` | Maximum transactions to fetch. Default: 25 |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
 
 ```powershell
 uv run ftm history 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa --limit 10
+uv run ftm history 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --limit 10 --provider etherscan
 ```
 
 On Ethereum, `kind` distinguishes native transfers, token transfers, internal transactions and contract calls.
@@ -200,6 +202,7 @@ Follows outgoing funds from the address breadth-first and prints the addresses r
 | `address` | Origin address |
 | `--hops N` | Maximum distance from the origin. Default: 3 |
 | `--limit N` | Maximum transactions fetched per address. Default: 25 |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
 
 ```powershell
 uv run ftm trace 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --hops 2
@@ -224,6 +227,7 @@ Looks for peel chains, CoinJoin transactions and address poisoning in the recent
 |---|---|
 | `address` | Address to analyze. Also taken as the potential poisoning victim |
 | `--limit N` | Maximum transactions to fetch. Default: 25 |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
 
 ```powershell
 uv run ftm patterns 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
@@ -245,6 +249,7 @@ Runs a trace and writes a Markdown report with an evidence table (hash, UTC date
 | `address` | Origin address |
 | `--hops N` | Maximum distance from the origin. Default: 3 |
 | `--out FILE` | Writes the report to this file. Default: standard output |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
 
 ```powershell
 uv run ftm report 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa --hops 2 --out report.md

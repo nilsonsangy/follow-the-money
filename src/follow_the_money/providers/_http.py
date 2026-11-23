@@ -41,9 +41,15 @@ class HttpClient:
         return mask_secrets(text, self._secrets)
 
     def get_json(self, path: str, params: Mapping[str, Any] | None = None) -> Any:
+        return self._request("GET", path, params=params)
+
+    def post_json(self, path: str, body: Mapping[str, Any]) -> Any:
+        return self._request("POST", path, json=dict(body))
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         try:
-            response = self._client.get(url, params=params, headers=self._headers)
+            response = self._client.request(method, url, headers=self._headers, **kwargs)
         except httpx.HTTPError as exc:
             raise ProviderError(
                 self.provider, self._mask(f"network error: {exc}")

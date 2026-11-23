@@ -20,9 +20,9 @@ _OPEN_DEFAULTS: dict[str, str | None] = {
 
 _KEYED: dict[str, dict[str, tuple[str, str]]] = {
     "bitcoin": {
-        "blockchair": (
-            "BLOCKCHAIR_API_KEY",
-            "Get a free key at https://blockchair.com/api/plans.",
+        "blockchain.com": (
+            "BLOCKCHAIN_API_KEY",
+            "Get a free key at https://www.blockchain.com/explorer/pricing.",
         ),
     },
     "ethereum": {
@@ -38,6 +38,10 @@ _KEYED: dict[str, dict[str, tuple[str, str]]] = {
         ),
     },
 }
+
+
+# Keyed providers that also answer without a key (with lower limits).
+_OPTIONAL_KEY = frozenset({"blockchain.com"})
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,9 @@ def select_provider(
     Pure: no I/O. Open providers (mempool.space for Bitcoin, Blockscout for
     Ethereum) are the default. A keyed provider is used only when requested and
     its key is set. If the key is missing, the open provider is used with a
-    notice. When no open equivalent exists, ``MissingKeyError`` is raised.
+    notice. Providers whose key is optional (Blockchain.com) are used when
+    requested, with or without the key. When no open equivalent exists,
+    ``MissingKeyError`` is raised.
     """
     if chain not in _OPEN_DEFAULTS:
         raise ValueError(f"Unknown chain: {chain!r}")
@@ -115,6 +121,8 @@ def select_provider(
     variable, how_to_get = keyed[name]
     if env.get(variable):
         return Selection(name, variable)
+    if name in _OPTIONAL_KEY:
+        return Selection(name, None)
     if open_name is None:
         raise MissingKeyError(variable, how_to_get)
     return Selection(

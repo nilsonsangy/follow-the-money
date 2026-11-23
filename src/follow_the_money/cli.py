@@ -33,8 +33,8 @@ EXIT_OK = 0
 EXIT_PROVIDER = 1
 EXIT_INPUT = 2
 
-_KEY_VARIABLES = ("ETHERSCAN_API_KEY", "BLOCKCHAIR_API_KEY", "COINGECKO_API_KEY")
-_PROVIDER_CHOICES = ("mempool.space", "blockscout", "etherscan", "blockchair")
+_KEY_VARIABLES = ("ETHERSCAN_API_KEY", "BLOCKCHAIN_API_KEY", "COINGECKO_API_KEY")
+_PROVIDER_CHOICES = ("mempool.space", "blockscout", "etherscan", "blockchain.com")
 _COIN_TO_CHAIN = {"Bitcoin": "bitcoin", "Ethereum": "ethereum"}
 _UNIT = {"bitcoin": "BTC", "ethereum": "ETH"}
 
@@ -81,22 +81,26 @@ def build_parser() -> argparse.ArgumentParser:
     history = commands.add_parser("history", help="list recent transactions, newest first")
     history.add_argument("address")
     history.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
+    history.add_argument("--provider", choices=_PROVIDER_CHOICES)
 
     trace_cmd = commands.add_parser("trace", help="trace outgoing funds up to N hops")
     trace_cmd.add_argument("address")
     trace_cmd.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
     trace_cmd.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
+    trace_cmd.add_argument("--provider", choices=_PROVIDER_CHOICES)
 
     patterns = commands.add_parser(
         "patterns", help="look for peel chains, CoinJoin and address poisoning"
     )
     patterns.add_argument("address")
     patterns.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
+    patterns.add_argument("--provider", choices=_PROVIDER_CHOICES)
 
     report = commands.add_parser("report", help="write a Markdown trace report")
     report.add_argument("address")
     report.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
     report.add_argument("--out", help="write the report to this file instead of stdout")
+    report.add_argument("--provider", choices=_PROVIDER_CHOICES)
     return parser
 
 
@@ -114,10 +118,10 @@ def _build_provider(name: str, env: Mapping[str, str]) -> Any:
         from .providers.etherscan import EtherscanProvider
 
         return EtherscanProvider(env["ETHERSCAN_API_KEY"])
-    if name == "blockchair":
-        from .providers.blockchair import BlockchairProvider
+    if name == "blockchain.com":
+        from .providers.blockchain_com import BlockchainComProvider
 
-        return BlockchairProvider(env["BLOCKCHAIR_API_KEY"])
+        return BlockchainComProvider(env.get("BLOCKCHAIN_API_KEY"))
     if name == "coingecko":
         from .providers.coingecko import CoinGeckoProvider
 
@@ -204,7 +208,7 @@ def _history_line(tx: Transaction) -> str:
 
 def _cmd_history(args: argparse.Namespace, ctx: _Context) -> None:
     chain, address = _chain_of(args.address)
-    transactions = ctx.provider(chain).get_transactions(address, args.limit)
+    transactions = ctx.provider(chain, args.provider).get_transactions(address, args.limit)
     if not transactions:
         ctx.say("No transactions found.")
         return
@@ -228,13 +232,13 @@ def _print_graph(graph: FundsGraph, ctx: _Context) -> None:
 
 def _cmd_trace(args: argparse.Namespace, ctx: _Context) -> None:
     chain, address = _chain_of(args.address)
-    provider = ctx.provider(chain)
+    provider = ctx.provider(chain, args.provider)
     _print_graph(trace(address, provider, args.hops, args.limit), ctx)
 
 
 def _cmd_patterns(args: argparse.Namespace, ctx: _Context) -> None:
     chain, address = _chain_of(args.address)
-    transactions = ctx.provider(chain).get_transactions(address, args.limit)
+    transactions = ctx.provider(chain, args.provider).get_transactions(address, args.limit)
     findings = detect_patterns(transactions, victim=address)
     if not findings:
         ctx.say("No patterns found. Results are heuristics, not proof.")
@@ -246,7 +250,7 @@ def _cmd_patterns(args: argparse.Namespace, ctx: _Context) -> None:
 
 def _cmd_report(args: argparse.Namespace, ctx: _Context) -> None:
     chain, address = _chain_of(args.address)
-    provider = ctx.provider(chain)
+    provider = ctx.provider(chain, args.provider)
     graph = trace(address, provider, args.hops, DEFAULT_LIMIT)
     evidences: list[Evidence] = []
     seen: set[str] = set()

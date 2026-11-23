@@ -237,70 +237,55 @@ def _case_etherscan_parse_balance(address, wei):
     assert balance.amount == Decimal(wei) / 10**18
 
 
-# --- Blockchair ----------------------------------------------------------
+# --- Blockchain.com --------------------------------------------------------
 
-from follow_the_money.providers import blockchair  # noqa: E402
-
-blockchair_times = epoch_seconds.map(
-    lambda s: datetime.fromtimestamp(s, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-)
+from follow_the_money.providers import blockchain_com  # noqa: E402
 
 
 @st.composite
-def blockchair_entries(draw):
+def blockchain_com_transactions(draw):
     n_in = draw(st.integers(min_value=1, max_value=4))
     n_out = draw(st.integers(min_value=1, max_value=4))
     return {
-        "transaction": {"hash": draw(txids), "time": draw(blockchair_times)},
+        "txId": draw(txids),
+        "time": draw(epoch_seconds),
+        "mempool": False,
         "inputs": [
-            {
-                "recipient": draw(btc_addresses),
-                "value": draw(satoshis),
-                "transaction_hash": draw(txids),
-            }
+            {"coinbase": False, "address": draw(btc_addresses), "value": draw(satoshis), "txid": draw(txids)}
             for _ in range(n_in)
         ],
-        "outputs": [
-            {"recipient": draw(btc_addresses), "value": draw(satoshis)} for _ in range(n_out)
-        ],
+        "outputs": [{"address": draw(btc_addresses), "value": draw(satoshis)} for _ in range(n_out)],
     }
 
 
-def _case_blockchair_parse_transaction_preserves_fields(entry):
-    tx = blockchair.parse_transaction(entry)
+def _case_blockchain_com_parse_transaction_preserves_fields(raw):
+    tx = blockchain_com.parse_transaction(raw)
 
-    assert tx.source == blockchair.NAME
+    assert tx.source == blockchain_com.NAME
     assert tx.chain == "bitcoin"
-    assert tx.txid == entry["transaction"]["hash"]
-    assert tx.timestamp == datetime.strptime(
-        entry["transaction"]["time"], "%Y-%m-%d %H:%M:%S"
-    ).replace(tzinfo=timezone.utc)
+    assert tx.txid == raw["txId"]
+    assert tx.timestamp == datetime.fromtimestamp(raw["time"], tz=timezone.utc)
     assert [(i.address, i.value, i.prev_txid) for i in tx.inputs] == [
-        (v["recipient"], Decimal(v["value"]) / 10**8, v["transaction_hash"])
-        for v in entry["inputs"]
+        (v["address"], Decimal(v["value"]) / 10**8, v["txid"]) for v in raw["inputs"]
     ]
     assert [(o.address, o.value) for o in tx.outputs] == [
-        (v["recipient"], Decimal(v["value"]) / 10**8) for v in entry["outputs"]
+        (v["address"], Decimal(v["value"]) / 10**8) for v in raw["outputs"]
     ]
 
 
-def _case_blockchair_parse_transactions_keeps_order_and_source(entries):
-    raw = {"data": {e["transaction"]["hash"]: e for e in entries}}
-    result = blockchair.parse_transactions(raw)
+def _case_blockchain_com_parse_transactions_keeps_order_and_source(items):
+    result = blockchain_com.parse_transactions({"transactions": items, "limit": 50, "offset": 0})
 
-    assert [t.txid for t in result] == [e["transaction"]["hash"] for e in entries]
-    assert all(t.source == blockchair.NAME for t in result)
+    assert [t.txid for t in result] == [i["txId"] for i in items]
+    assert all(t.source == blockchain_com.NAME for t in result)
 
 
-def _case_blockchair_parse_address_dashboard(address, sats, hashes):
-    raw = {"data": {address: {"address": {"balance": sats}, "transactions": hashes}}}
-    balance, listed = blockchair.parse_address_dashboard(address, raw)
+def _case_blockchain_com_parse_balance(address, sats):
+    balance = blockchain_com.parse_balance(address, {"address": address, "confirmed": sats, "unconfirmed": 0})
 
-    assert balance.source == blockchair.NAME
+    assert balance.source == blockchain_com.NAME
     assert balance.address == address
     assert balance.amount == Decimal(sats) / 10**8
-    assert listed == hashes
-
 
 # --- One test per provider -----------------------------------------------
 @given(st.data())
@@ -335,13 +320,9 @@ def test_etherscan_normalization(data):
 
 
 @given(st.data())
-def test_blockchair_normalization(data):
-    _case_blockchair_parse_transaction_preserves_fields(data.draw(blockchair_entries()))
-    _case_blockchair_parse_transactions_keeps_order_and_source(
-        data.draw(
-            st.lists(blockchair_entries(), max_size=5, unique_by=lambda e: e["transaction"]["hash"])
-        )
+def test_blockchain_com_normalization(data):
+    _case_blockchain_com_parse_transaction_preserves_fields(data.draw(blockchain_com_transactions()))
+    _case_blockchain_com_parse_transactions_keeps_order_and_source(
+        data.draw(st.lists(blockchain_com_transactions(), max_size=5))
     )
-    _case_blockchair_parse_address_dashboard(
-        data.draw(btc_addresses), data.draw(satoshis), data.draw(st.lists(txids, max_size=5))
-    )
+    _case_blockchain_com_parse_balance(data.draw(btc_addresses), data.draw(satoshis))
