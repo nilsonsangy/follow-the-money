@@ -20,13 +20,20 @@ from decimal import Decimal
 from typing import Any, TextIO
 
 from . import config
-from .detect import UNKNOWN, detect_coin, normalize_address
+from .detect import (
+    INPUT_ADDRESS,
+    INPUT_UNKNOWN,
+    UNKNOWN,
+    classify_cluster_input,
+    detect_coin,
+    normalize_address,
+)
 from .errors import InvalidAddressError, MissingKeyError, ProviderError
 from .masking import mask_secrets
 from .models import Evidence, Transaction
 from .patterns import detect_patterns
 from .pricing import to_usd
-from .report import format_timestamp, render_report
+from .report import format_cluster, format_timestamp, render_report
 from .trace import DEFAULT_HOPS, DEFAULT_LIMIT, FundsGraph, trace
 
 EXIT_OK = 0
@@ -101,6 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
     report.add_argument("--out", help="write the report to this file instead of stdout")
     report.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    cluster = commands.add_parser(
+        "cluster", help="look up the wallet cluster of a Bitcoin address or transaction id"
+    )
+    cluster.add_argument("argument")
     return parser
 
 
@@ -122,6 +133,10 @@ def _build_provider(name: str, env: Mapping[str, str]) -> Any:
         from .providers.blockchain_com import BlockchainComProvider
 
         return BlockchainComProvider(env.get("BLOCKCHAIN_API_KEY"))
+    if name == "walletexplorer.com":
+        from .providers.walletexplorer import WalletExplorerProvider
+
+        return WalletExplorerProvider()
     if name == "coingecko":
         from .providers.coingecko import CoinGeckoProvider
 
@@ -161,6 +176,12 @@ class _Context:
         if selection.provider in self.providers:
             return self.providers[selection.provider]
         return _build_provider(selection.provider, self.env)
+
+    def provider_by_name(self, name: str) -> Any:
+        """Return the injected provider called `name`, or build the real one."""
+        if name in self.providers:
+            return self.providers[name]
+        return _build_provider(name, self.env)
 
 
 def _chain_of(address: str) -> tuple[str, str]:
@@ -248,6 +269,27 @@ def _cmd_patterns(args: argparse.Namespace, ctx: _Context) -> None:
         ctx.say(f"  {f.detail}")
 
 
+def _cmd_cluster(args: argparse.Namespace, ctx: _Context) -> None:
+    text = args.argument.strip()
+    kind = classify_cluster_input(text)
+    if kind == INPUT_UNKNOWN:
+        coin = detect_coin(text)
+        if coin != UNKNOWN:
+            raise _InputError(
+                f"{coin} addresses are detected but WalletExplorer covers Bitcoin only."
+            )
+        raise _InputError(
+            f"Not a Bitcoin address or transaction id: {text!r}"
+        )
+    provider = ctx.provider_by_name("walletexplorer.com")
+    if kind == INPUT_ADDRESS:
+        result = provider.lookup_address(normalize_address(text))
+    else:
+        result = provider.lookup_tx(text)
+    for line in format_cluster(result):
+        ctx.say(line)
+
+
 def _cmd_report(args: argparse.Namespace, ctx: _Context) -> None:
     chain, address = _chain_of(args.address)
     provider = ctx.provider(chain, args.provider)
@@ -295,6 +337,7 @@ _COMMANDS = {
     "trace": _cmd_trace,
     "patterns": _cmd_patterns,
     "report": _cmd_report,
+    "cluster": _cmd_cluster,
 }
 
 

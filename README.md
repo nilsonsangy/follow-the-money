@@ -46,7 +46,7 @@
 
 `ftm` follows funds on public blockchains. Given an address, it identifies the coin, reports the balance, lists recent transactions, traces outgoing funds hop by hop, flags common obfuscation and scam shapes, and writes a Markdown evidence report. Bitcoin and Ethereum are supported for analysis. Litecoin and Monero addresses are recognized by `detect` only.
 
-Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. API keys are optional and enable Etherscan and CoinGecko. Blockchain.com works with or without a key.
+Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. The `cluster` command uses the open WalletExplorer API to name the wallet cluster of a Bitcoin address or transaction. API keys are optional and enable Etherscan and CoinGecko. Blockchain.com works with or without a key.
 
 Results are leads for manual verification. Every transaction in a report carries its hash, UTC date and source provider, so that each claim can be checked independently on a public explorer.
 
@@ -65,9 +65,14 @@ flowchart LR
     ES --> N
     N --> C[balance / history / trace / patterns / report]
     CG[CoinGecko] -->|historical USD price| C
+    W[Bitcoin address or txid] --> CL{cluster}
+    CL --> WE[WalletExplorer]
+    WE --> R[wallet ID and label]
 ```
 
 A keyed provider is used only when requested with `--provider` (accepted by `balance`, `history`, `trace`, `patterns` and `report`) and its key is set. Blockchain.com is the exception: its key is optional, so it answers when requested even without `BLOCKCHAIN_API_KEY`, with the default limits. If the key of another keyed provider is missing and an open equivalent exists, the open provider is used and a notice is written to the error stream. CoinGecko has no open equivalent, so `balance --usd` without `COINGECKO_API_KEY` fails with a message that names the variable and how to obtain it.
+
+The `cluster` command is separate from the other commands: it always queries WalletExplorer, takes no `--provider` option and needs no key.
 
 ## Quick start
 
@@ -130,6 +135,7 @@ Free limits change over time. The official documentation prevails over this tabl
 | CoinGecko (Demo plan) | 100 calls/minute. Historical data on the Basic plan is restricted to the past 2 years | [CoinGecko errors and rate limits](https://docs.coingecko.com/docs/common-errors-rate-limit), [Coin historical data](https://docs.coingecko.com/v3.0.1/reference/coins-id-history) |
 | mempool.space | Public instance, no key. Limits are not published as fixed figures | [mempool.space REST API](https://mempool.space/docs/api/rest) |
 | Blockscout | Public instance, no key. Limits depend on the instance | [Blockscout APIs](https://docs.blockscout.com/devs/apis) |
+| WalletExplorer | Public API, no key. The documentation states no request limit today, but the service may apply limits and answer HTTP 429 | [WalletExplorer API](https://www.walletexplorer.com/api) |
 
 When a provider answers HTTP 429 (or the Etherscan "rate limit" message), the command stops with a rate-limit error that names the provider. There is no automatic retry loop.
 
@@ -218,6 +224,26 @@ Transfers: 3
 ```
 
 Each extra hop multiplies the number of requests, so higher values consume the provider limits quickly.
+
+### cluster
+
+Reports the wallet cluster that a Bitcoin address or transaction belongs to, using the public [WalletExplorer API](https://www.walletexplorer.com/api). No API key and no `.env` file are needed, and any configured keys are ignored. The API covers Bitcoin only.
+
+| Argument | Meaning |
+|---|---|
+| `argument` | Bitcoin address, or transaction ID (txid) of 64 hexadecimal characters, in upper or lower case |
+
+```powershell
+uv run ftm cluster 1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s
+```
+```text
+Type: address
+Label: Binance.com
+```
+
+For a txid, the output also lists one `Output:` line per output that has a wallet, in the form `Output: ADDRESS -> wallet WALLET_ID (LABEL)`. The output carries only the `Type`, `Label` and `Output` lines. A label points to a service or cluster, not a person, and clustering is heuristic. When nothing is found, the output is `Result: no cluster found` (or `Result: transaction not found`) and the exit code is 0. A coin other than Bitcoin or an unrecognized argument exits with code 2. HTTP 429 or any other provider failure exits with code 1, without retrying.
+
+WalletExplorer documents no request limit today, but limits may change and the service may answer HTTP 429. The official documentation prevails over this text.
 
 ### patterns
 

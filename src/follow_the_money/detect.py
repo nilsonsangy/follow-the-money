@@ -49,6 +49,34 @@ def normalize_address(address: str) -> str:
     return text
 
 
+INPUT_ADDRESS = "address"
+INPUT_TXID = "txid"
+INPUT_UNKNOWN = "unknown"
+
+# A transaction id: exactly 64 hexadecimal characters, either case.
+_TXID_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def classify_cluster_input(text: str) -> str:
+    """Classify the argument of a cluster lookup.
+
+    Args:
+        text: The address or transaction id typed by the user.
+
+    Returns:
+        ``txid`` for exactly 64 hexadecimal characters (either case),
+        ``address`` for a Bitcoin address format, otherwise ``unknown``.
+        Addresses of other coins are ``unknown`` here; use ``detect_coin``
+        to tell them apart from unrecognized text.
+    """
+    stripped = text.strip()
+    if _TXID_PATTERN.fullmatch(stripped):
+        return INPUT_TXID
+    if ADDRESS_PATTERNS["Bitcoin"].match(normalize_address(stripped)):
+        return INPUT_ADDRESS
+    return INPUT_UNKNOWN
+
+
 def detect_coin(address: str) -> str:
     """Detect the cryptocurrency of a wallet address from its format.
 

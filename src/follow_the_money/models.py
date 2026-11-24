@@ -56,3 +56,21 @@ class Finding:
     pattern: str
     txids: tuple[str, ...]
     detail: str
+
+
+@dataclass(frozen=True)
+class ClusterOutput:
+    address: str | None
+    wallet_id: str | None
+    label: str | None
+
+
+@dataclass(frozen=True)
+class ClusterResult:
+    argument: str  # the original argument, as typed
+    input_kind: str  # "address" | "txid"
+    found: bool
+    wallet_id: str | None  # None when found is False
+    label: str | None  # None when found is False or the wallet has no label
+    outputs: tuple[ClusterOutput, ...]  # only populated for input_kind == "txid"
+    source: str = "walletexplorer.com"

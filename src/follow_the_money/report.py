@@ -23,7 +23,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 
-from .models import Evidence, Finding
+from .models import ClusterResult, Evidence, Finding
+
+_NO_LABEL = "no known label"
 
 _EVIDENCE_HEADING = "## Evidence"
 _TABLE_HEADER = "| # | Transaction hash | Date (UTC) | Source | Note |"
@@ -137,6 +139,35 @@ def render_report(
     for finding in findings:
         lines.append(f"- {finding.pattern}: {', '.join(finding.txids)}")
     return "\n".join(lines) + "\n"
+
+
+def format_cluster(result: ClusterResult) -> list[str]:
+    """Format a cluster lookup as ``Field: value`` lines, one field per line.
+
+    Fields, in order: Type, Label, Output, Result. A missing result writes
+    ``Result`` and omits Label and Output. The output is a pure function of
+    ``result`` and therefore deterministic.
+    """
+    lines = [f"Type: {result.input_kind}"]
+
+    if not result.found:
+        if result.input_kind == "txid":
+            lines.append("Result: transaction not found")
+        else:
+            lines.append("Result: no cluster found")
+        return lines
+
+    lines.append(f"Label: {result.label if result.label is not None else _NO_LABEL}")
+
+    for out in result.outputs:
+        if out.wallet_id is None:
+            continue
+        origin = out.address if out.address is not None else "unknown address"
+        line = f"Output: {origin} -> wallet {out.wallet_id}"
+        if out.label is not None:
+            line += f" ({out.label})"
+        lines.append(line)
+    return lines
 
 
 def parse_report(text: str) -> list[Evidence]:
