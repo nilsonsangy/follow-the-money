@@ -74,3 +74,29 @@ class ClusterResult:
     label: str | None  # None when found is False or the wallet has no label
     outputs: tuple[ClusterOutput, ...]  # only populated for input_kind == "txid"
     source: str = "walletexplorer.com"
+
+
+@dataclass(frozen=True)
+class TransactionDetail:
+    """One Ethereum transaction with the fields needed to confirm a finding.
+
+    ``sender`` is the account that signed the transaction and paid the gas.
+    ``internal`` holds the internal transactions produced by the execution.
+    ``token_transfers`` is ``None`` when the provider does not report them for a
+    single transaction, and a (possibly empty) tuple otherwise.
+    """
+
+    chain: str
+    txid: str
+    timestamp: datetime  # UTC
+    block: int | None
+    success: bool | None  # None when the receipt carries no status (before Byzantium)
+    sender: str | None
+    recipient: str | None  # None when the transaction creates a contract
+    value: Decimal  # ETH
+    fee: Decimal  # ETH actually paid (gas used x effective gas price)
+    gas_used: int
+    method: str | None
+    internal: tuple[Transaction, ...]
+    token_transfers: tuple[Transaction, ...] | None
+    source: str

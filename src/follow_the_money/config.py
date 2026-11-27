@@ -18,6 +18,8 @@ _OPEN_DEFAULTS: dict[str, str | None] = {
     "price": None,  # no open equivalent
 }
 
+# Open providers that are not the default of their chain (no key needed).
+_OPEN_EXTRA: dict[str, frozenset[str]] = {"ethereum": frozenset({"routescan"})}
 _KEYED: dict[str, dict[str, tuple[str, str]]] = {
     "bitcoin": {
         "blockchain.com": (
@@ -115,6 +117,8 @@ def select_provider(
 
     if name == open_name:
         return Selection(open_name, None)
+    if name in _OPEN_EXTRA.get(chain, frozenset()):
+        return Selection(name, None)
     if name not in keyed:
         raise ValueError(f"Unknown provider for {chain}: {requested!r}")
 

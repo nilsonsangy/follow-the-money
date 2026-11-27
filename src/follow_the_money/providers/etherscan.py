@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from ..errors import ProviderError, RateLimitError
-from ..models import Balance, Transaction, TxInput, TxOutput
+from ..models import Balance, Transaction, TransactionDetail, TxInput, TxOutput
 from ._http import HttpClient
 
 NAME = "etherscan"
@@ -141,6 +141,72 @@ def parse_balance(address: str, raw: Any) -> Balance:
     return Balance(address, "ethereum", _units(result, 18), NAME)
 
 
+def _hex_int(value: Any, field: str) -> int:
+    if not isinstance(value, str) or not value.startswith("0x"):
+        raise _bad(f"invalid {field}")
+    try:
+        return int(value, 16)
+    except ValueError:
+        raise _bad(f"invalid {field}") from None
+
+
+def unwrap_proxy(raw: Any) -> Any:
+    """Return ``result`` from a JSON-RPC style ``module=proxy`` response.
+
+    Proxy calls answer ``{"jsonrpc", "id", "result"}``. Errors and rate limits
+    come back in the ``status``/``message`` envelope instead, which
+    :func:`unwrap_result` already handles.
+    """
+    if isinstance(raw, dict) and "status" in raw:
+        return unwrap_result(raw)
+    if not isinstance(raw, dict) or "result" not in raw:
+        raise _bad("missing 'result'")
+    return raw["result"]
+
+
+def parse_transaction_detail(tx: Any, receipt: Any, block: Any, internal: Any) -> TransactionDetail:
+    """Normalize the proxy transaction, receipt and block plus ``txlistinternal``."""
+    if not isinstance(tx, dict) or not isinstance(receipt, dict) or not isinstance(block, dict):
+        raise _bad("transaction not found or malformed")
+    txid = tx.get("hash")
+    if not isinstance(txid, str):
+        raise _bad("missing transaction hash")
+    when = datetime.fromtimestamp(_hex_int(block.get("timestamp"), "block timestamp"), tz=timezone.utc)
+    gas_used = _hex_int(receipt.get("gasUsed"), "gas used")
+    price = _hex_int(receipt.get("effectiveGasPrice", tx.get("gasPrice")), "gas price")
+    data = tx.get("input")
+    method = data[:10] if isinstance(data, str) and len(data) >= 10 else None
+    children = tuple(
+        Transaction(
+            chain="ethereum",
+            txid=txid,
+            timestamp=when,
+            inputs=(TxInput(_address(item.get("from")), _units(item.get("value", "0"), 18), None),),
+            outputs=(TxOutput(_address(item.get("to")), _units(item.get("value", "0"), 18)),),
+            source=NAME,
+            kind="internal",
+        )
+        for item in unwrap_result(internal)
+        if isinstance(item, dict)
+    )
+    return TransactionDetail(
+        chain="ethereum",
+        txid=txid,
+        timestamp=when,
+        block=_hex_int(tx.get("blockNumber"), "block number"),
+        success=(receipt["status"] == "0x1") if receipt.get("status") in ("0x0", "0x1") else None,
+        sender=_address(tx.get("from")),
+        recipient=_address(tx.get("to")),
+        value=_units(_hex_int(tx.get("value"), "value"), 18),
+        fee=_units(gas_used * price, 18),
+        gas_used=gas_used,
+        method=method,
+        internal=children,
+        token_transfers=None,
+        source=NAME,
+    )
+
+
 class EtherscanProvider:
     """Ethereum provider backed by the Etherscan API V2 (requires a free key)."""
 
@@ -150,33 +216,37 @@ class EtherscanProvider:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None,
         base_url: str = BASE_URL,
         client: httpx.Client | None = None,
         min_interval: float | None = None,
     ) -> None:
-        if not api_key:
+        if api_key is not None and not api_key:
             raise ValueError(f"{KEY_VARIABLE} must not be empty")
-        self._key = api_key
+        # ``None`` means keyless use, for Etherscan-compatible open endpoints.
+        self._key = api_key or ""
         # Pacing applies to real network use. An injected client (tests) is not paced.
         self._min_interval = min_interval if min_interval is not None else (MIN_INTERVAL if client is None else 0.0)
         self._last_call = 0.0
-        self._http = HttpClient(NAME, base_url, secrets=(api_key,), client=client)
+        self._http = HttpClient(NAME, base_url, secrets=(api_key,) if api_key else (), client=client)
 
-    def _query(self, action: str, address: str, **extra: Any) -> Any:
+    def _call(self, module: str, action: str, **params: Any) -> Any:
         wait = self._last_call + self._min_interval - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         self._last_call = time.monotonic()
-        params = {
+        query = {
             "chainid": CHAIN_ID,
-            "module": "account",
+            "module": module,
             "action": action,
-            "address": address,
-            "apikey": self._key,
-            **extra,
+            **params,
         }
-        return self._http.get_json("/api", params)
+        if self._key:
+            query["apikey"] = self._key
+        return self._http.get_json("/api", query)
+
+    def _query(self, action: str, address: str, **extra: Any) -> Any:
+        return self._call("account", action, address=address, **extra)
 
     def get_balance(self, address: str) -> Balance:
         return parse_balance(address, self._query("balance", address, tag="latest"))
@@ -195,3 +265,15 @@ class EtherscanProvider:
         )
         merged.sort(key=lambda tx: tx.timestamp, reverse=True)
         return merged[:limit]
+
+    def get_transaction(self, txid: str) -> TransactionDetail:
+        """Return one transaction, its receipt, block time and internal transactions."""
+        tx = unwrap_proxy(self._call("proxy", "eth_getTransactionByHash", txhash=txid))
+        if tx is None:
+            raise ProviderError(NAME, "transaction not found")
+        receipt = unwrap_proxy(self._call("proxy", "eth_getTransactionReceipt", txhash=txid))
+        block = unwrap_proxy(
+            self._call("proxy", "eth_getBlockByNumber", tag=tx.get("blockNumber"), boolean="false")
+        )
+        internal = self._call("account", "txlistinternal", txhash=txid)
+        return parse_transaction_detail(tx, receipt, block, internal)

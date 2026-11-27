@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 
 from ..errors import ProviderError
-from ..models import Balance, Transaction, TxInput, TxOutput
+from ..models import Balance, Transaction, TransactionDetail, TxInput, TxOutput
 from ._http import HttpClient
 
 NAME = "blockscout"
@@ -144,6 +144,50 @@ def parse_balance(address: str, raw: Any) -> Balance:
     return Balance(address, "ethereum", _units(raw["coin_balance"], 18), NAME)
 
 
+def parse_transaction_detail(
+    raw: Any, internal_raw: Any, token_raw: Any
+) -> TransactionDetail:
+    """Normalize ``/transactions/{hash}`` plus its internal and token transfers."""
+    if not isinstance(raw, dict):
+        raise _bad("transaction is not an object")
+    txid = _txid(raw, "hash")
+    when = raw.get("timestamp")
+    fee = raw.get("fee") or {}
+    block = raw.get("block_number")
+    gas_used = raw.get("gas_used")
+    recipient = _address(raw.get("to"))
+    method = raw.get("method")
+
+    def children(payload: Any, parser: Any) -> tuple[Transaction, ...]:
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise _bad("expected an object with an 'items' list")
+        return tuple(
+            parser({**item, "transaction_hash": txid, "timestamp": when})
+            for item in payload["items"]
+        )
+
+    try:
+        gas = int(gas_used) if gas_used is not None else 0
+    except (TypeError, ValueError):
+        raise _bad("invalid gas used") from None
+    return TransactionDetail(
+        chain="ethereum",
+        txid=txid,
+        timestamp=_timestamp(when),
+        block=block if isinstance(block, int) else None,
+        success=raw.get("status") == "ok" or raw.get("result") == "success",
+        sender=_address(raw.get("from")),
+        recipient=recipient,
+        value=_units(raw.get("value", "0"), 18),
+        fee=_units(fee.get("value", "0") if isinstance(fee, dict) else "0", 18),
+        gas_used=gas,
+        method=method if isinstance(method, str) and method else None,
+        internal=children(internal_raw, parse_internal_transaction),
+        token_transfers=children(token_raw, parse_token_transfer),
+        source=NAME,
+    )
+
+
 class BlockscoutProvider:
     """Open Ethereum provider backed by the Blockscout REST v2 API."""
 
@@ -180,3 +224,12 @@ class BlockscoutProvider:
         )
         merged.sort(key=lambda tx: tx.timestamp, reverse=True)
         return merged[:limit]
+
+    def get_transaction(self, txid: str) -> TransactionDetail:
+        """Return one transaction with its internal and token transfers."""
+        base = f"/transactions/{txid}"
+        return parse_transaction_detail(
+            self._http.get_json(base),
+            self._http.get_json(f"{base}/internal-transactions"),
+            self._http.get_json(f"{base}/token-transfers"),
+        )

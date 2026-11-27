@@ -92,3 +92,11 @@ def detect_coin(address: str) -> str:
         if pattern.match(normalized):
             return coin
     return UNKNOWN
+
+
+_ETHEREUM_TX_HASH = re.compile(r"0x[0-9a-fA-F]{64}")
+
+
+def is_ethereum_tx_hash(text: str) -> bool:
+    """Return ``True`` for ``0x`` followed by exactly 64 hexadecimal characters."""
+    return bool(_ETHEREUM_TX_HASH.fullmatch(text.strip()))

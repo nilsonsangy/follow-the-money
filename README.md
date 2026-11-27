@@ -44,9 +44,9 @@
 
 ## Overview
 
-`ftm` follows funds on public blockchains. Given an address, it identifies the coin, reports the balance, lists recent transactions, traces outgoing funds hop by hop, flags common obfuscation and scam shapes, and writes a Markdown evidence report. Bitcoin and Ethereum are supported for analysis. Litecoin and Monero addresses are recognized by `detect` only.
+`ftm` follows funds on public blockchains. Given an address, it identifies the coin, reports the balance, shows a single transaction, lists recent transactions, traces outgoing funds hop by hop, flags common obfuscation and scam shapes, and writes a Markdown evidence report. Bitcoin and Ethereum are supported for analysis. Litecoin and Monero addresses are recognized by `detect` only.
 
-Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. The `cluster` command uses the open WalletExplorer API to name the wallet cluster of a Bitcoin address or transaction. API keys are optional and enable Etherscan and CoinGecko. Blockchain.com works with or without a key.
+Data comes from interchangeable providers. Open providers (mempool.space for Bitcoin, Blockscout for Ethereum) are the default and need no key. Routescan is a second open provider for Ethereum, selected with `--provider routescan`. The `cluster` command uses the open WalletExplorer API to name the wallet cluster of a Bitcoin address or transaction. API keys are optional and enable Etherscan and CoinGecko. Blockchain.com works with or without a key.
 
 Results are leads for manual verification. Every transaction in a report carries its hash, UTC date and source provider, so that each claim can be checked independently on a public explorer.
 
@@ -135,6 +135,7 @@ Free limits change over time. The official documentation prevails over this tabl
 | CoinGecko (Demo plan) | 100 calls/minute. Historical data on the Basic plan is restricted to the past 2 years | [CoinGecko errors and rate limits](https://docs.coingecko.com/docs/common-errors-rate-limit), [Coin historical data](https://docs.coingecko.com/v3.0.1/reference/coins-id-history) |
 | mempool.space | Public instance, no key. Limits are not published as fixed figures | [mempool.space REST API](https://mempool.space/docs/api/rest) |
 | Blockscout | Public instance, no key. Limits depend on the instance | [Blockscout APIs](https://docs.blockscout.com/devs/apis) |
+| Routescan | Etherscan-compatible API, no key. The free tier is limited per second and per day, and the figures depend on the network; check the Routescan documentation for Ethereum before relying on them | [Routescan](https://routescan.io/) |
 | WalletExplorer | Public API, no key. The documentation states no request limit today, but the service may apply limits and answer HTTP 429 | [WalletExplorer API](https://www.walletexplorer.com/api) |
 
 When a provider answers HTTP 429 (or the Etherscan "rate limit" message), the command stops with a rate-limit error that names the provider. There is no automatic retry loop.
@@ -170,7 +171,7 @@ Shows the current balance.
 | Argument | Meaning |
 |---|---|
 | `address` | Bitcoin or Ethereum address |
-| `--provider NAME` | One of `mempool.space`, `blockscout`, `etherscan`, `blockchain.com`. Default: the open provider of the chain |
+| `--provider NAME` | One of `mempool.space`, `blockscout`, `etherscan`, `blockchain.com`, `routescan`. Default: the open provider of the chain |
 | `--usd` | Also shows the value in US dollars at today's price. Requires `COINGECKO_API_KEY` |
 
 ```powershell
@@ -225,6 +226,31 @@ Transfers: 3
 
 Each extra hop multiplies the number of requests, so higher values consume the provider limits quickly.
 
+### tx
+Shows one Ethereum transaction: status, block, UTC date, the account that signed it and paid the gas, the value, the fee actually paid, the method and the internal transactions. The signer is the `From` account, which is the usual starting point to find who operates an address. A gas payer is a lead, not proof: exchanges, relayers and smart accounts can pay gas on behalf of someone else.
+| Argument | Meaning |
+|---|---|
+| `hash` | Ethereum transaction hash: `0x` followed by 64 hexadecimal characters |
+| `--provider NAME` | `blockscout` (default), `etherscan` or `routescan`. Blockscout also lists the token transfers of the transaction. Etherscan reports the method as the 4-byte selector and does not list token transfers for a single transaction |
+```powershell
+uv run ftm tx 0xb61413c495fdad6114a7aa863a00b2e3c28945979a10885b12b30316ea9f072c --provider etherscan
+```
+```text
+Transaction: 0xb61413c495fdad6114a7aa863a00b2e3c28945979a10885b12b30316ea9f072c
+Status: success
+Block: 21895251
+Date (UTC): 2025-02-21T14:16:11Z
+From (signed and paid the gas): 0x0fa09c3a328792253f8dee7116848723b72a6d2e
+To: 0x1db92e2eebc8e0c075a02bea49a2935bcd2dfcf4
+Value: 0 ETH
+Fee paid: 0.000378762248769534 ETH (gas used 60981)
+Method: 0x1163b2b0
+Internal transactions: 1
+  0x1db92e2eebc8e0c075a02bea49a2935bcd2dfcf4 -> 0x47666fab8bd0ac7003bce3f5c3585383f09486e2  401346.768858404671846374 ETH
+Token transfers: not reported by etherscan for a single transaction
+Source: etherscan
+```
+A non-Ethereum or malformed hash exits with code 2. A provider failure exits with code 1.
 ### cluster
 
 Reports the wallet cluster that a Bitcoin address or transaction belongs to, using the public [WalletExplorer API](https://www.walletexplorer.com/api). No API key and no `.env` file are needed, and any configured keys are ignored. The API covers Bitcoin only.

@@ -26,11 +26,12 @@ from .detect import (
     UNKNOWN,
     classify_cluster_input,
     detect_coin,
+    is_ethereum_tx_hash,
     normalize_address,
 )
 from .errors import InvalidAddressError, MissingKeyError, ProviderError
 from .masking import mask_secrets
-from .models import Evidence, Transaction
+from .models import Evidence, Transaction, TransactionDetail
 from .patterns import detect_patterns
 from .pricing import to_usd
 from .report import format_cluster, format_timestamp, render_report
@@ -41,7 +42,7 @@ EXIT_PROVIDER = 1
 EXIT_INPUT = 2
 
 _KEY_VARIABLES = ("ETHERSCAN_API_KEY", "BLOCKCHAIN_API_KEY", "COINGECKO_API_KEY")
-_PROVIDER_CHOICES = ("mempool.space", "blockscout", "etherscan", "blockchain.com")
+_PROVIDER_CHOICES = ("mempool.space", "blockscout", "etherscan", "blockchain.com", "routescan")
 _COIN_TO_CHAIN = {"Bitcoin": "bitcoin", "Ethereum": "ethereum"}
 _UNIT = {"bitcoin": "BTC", "ethereum": "ETH"}
 
@@ -68,7 +69,7 @@ def _positive(text: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the parser with the six commands of the first release."""
+    """Build the parser with every command."""
     parser = argparse.ArgumentParser(
         prog="ftm",
         description="Cryptocurrency address detection, balance, history, tracing and pattern analysis.",
@@ -108,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
     report.add_argument("--out", help="write the report to this file instead of stdout")
     report.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    tx = commands.add_parser(
+        "tx", help="show one Ethereum transaction: gas payer, fee and internal transfers"
+    )
+    tx.add_argument("hash")
+    tx.add_argument("--provider", choices=_PROVIDER_CHOICES)
     cluster = commands.add_parser(
         "cluster", help="look up the wallet cluster of a Bitcoin address or transaction id"
     )
@@ -129,6 +135,10 @@ def _build_provider(name: str, env: Mapping[str, str]) -> Any:
         from .providers.etherscan import EtherscanProvider
 
         return EtherscanProvider(env["ETHERSCAN_API_KEY"])
+    if name == "routescan":
+        from .providers.routescan import RoutescanProvider
+
+        return RoutescanProvider()
     if name == "blockchain.com":
         from .providers.blockchain_com import BlockchainComProvider
 
@@ -269,6 +279,50 @@ def _cmd_patterns(args: argparse.Namespace, ctx: _Context) -> None:
         ctx.say(f"  {f.detail}")
 
 
+def _transfer_line(tx: Transaction, unit: str) -> str:
+    sender = tx.inputs[0].address or "-"
+    receiver = tx.outputs[0].address or "-"
+    return f"  {sender} -> {receiver}  {tx.outputs[0].value} {unit}"
+
+
+def _print_transaction(detail: TransactionDetail, ctx: _Context) -> None:
+    ctx.say(f"Transaction: {detail.txid}")
+    status = {True: "success", False: "failed", None: "unknown (receipt without status)"}[detail.success]
+    ctx.say(f"Status: {status}")
+    ctx.say(f"Block: {detail.block if detail.block is not None else '-'}")
+    ctx.say(f"Date (UTC): {format_timestamp(detail.timestamp)}")
+    ctx.say(f"From (signed and paid the gas): {detail.sender or '-'}")
+    ctx.say(f"To: {detail.recipient or '- (contract creation)'}")
+    ctx.say(f"Value: {detail.value} ETH")
+    ctx.say(f"Fee paid: {detail.fee} ETH (gas used {detail.gas_used})")
+    ctx.say(f"Method: {detail.method or '-'}")
+    ctx.say(f"Internal transactions: {len(detail.internal)}")
+    for tx in detail.internal:
+        ctx.say(_transfer_line(tx, "ETH"))
+    if detail.token_transfers is None:
+        ctx.say(
+            f"Token transfers: not reported by {detail.source} for a single "
+            "transaction"
+        )
+    else:
+        ctx.say(f"Token transfers: {len(detail.token_transfers)}")
+        for tx in detail.token_transfers:
+            ctx.say(_transfer_line(tx, "units"))
+    ctx.say(f"Source: {detail.source}")
+
+
+def _cmd_tx(args: argparse.Namespace, ctx: _Context) -> None:
+    text = args.hash.strip()
+    if not is_ethereum_tx_hash(text):
+        raise _InputError(
+            f"Not an Ethereum transaction hash: {text!r} (expected 0x followed by 64 hexadecimal characters)"
+        )
+    provider = ctx.provider("ethereum", args.provider)
+    if not hasattr(provider, "get_transaction"):
+        raise _InputError(f"Provider '{provider.name}' cannot show a single transaction.")
+    _print_transaction(provider.get_transaction(text.lower()), ctx)
+
+
 def _cmd_cluster(args: argparse.Namespace, ctx: _Context) -> None:
     text = args.argument.strip()
     kind = classify_cluster_input(text)
@@ -338,6 +392,7 @@ _COMMANDS = {
     "patterns": _cmd_patterns,
     "report": _cmd_report,
     "cluster": _cmd_cluster,
+    "tx": _cmd_tx,
 }
 
 
