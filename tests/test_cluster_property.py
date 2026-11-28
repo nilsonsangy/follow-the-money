@@ -191,7 +191,7 @@ class _FakeProvider:
 def _run_cluster(argument: str) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     code = main(
-        ["cluster", argument],
+        ["cluster", "--", argument],
         stdout=out,
         stderr=err,
         env={},

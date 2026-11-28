@@ -57,7 +57,7 @@ flowchart LR
     A[Address] --> D{detect}
     D -->|Bitcoin| B[mempool.space]
     D -->|Ethereum| E[Blockscout]
-    B -. requested .-> BC[Blockchain.com]
+    B -. requested .-> BC[Blockchain Explorer API]
     E -. key set and requested .-> ES[Etherscan]
     B --> N[Normalized transactions]
     E --> N
@@ -103,7 +103,7 @@ A single `.env` file in the directory where `ftm` runs holds the optional API ke
 | Variable | Provider | Required |
 |---|---|---|
 | `ETHERSCAN_API_KEY` | Etherscan | No. Blockscout is used when absent |
-| `BLOCKCHAIN_API_KEY` | Blockchain.com | No. Blockchain.com also answers without a key, with the default limits |
+| `BLOCKCHAIN_API_KEY` | Blockchain Explorer API | No. The provider also answers without a key, with the default limits |
 | `COINGECKO_API_KEY` | CoinGecko (historical prices) | Only for `balance --usd` |
 
 The `.env` file is ignored by git. Key values are never committed, logged or printed: every URL, header and message is passed through `mask_secrets` before leaving the provider client, and the same masking applies to all command output and to reports.
@@ -114,7 +114,7 @@ All three keys are free, and none is required for Bitcoin or Ethereum analysis.
 
 1. **Etherscan.** Create an account and generate a key as described in the [Etherscan key guide](https://docs.etherscan.io/getting-an-api-key). One key covers the API V2 chains available on the free plan.
 2. **CoinGecko.** Create a Demo account and generate a Demo key as described in the [CoinGecko key guide](https://docs.coingecko.com/reference/setting-up-your-api-key).
-3. **Blockchain.com.** Create an account and generate an Explorer API key, as described on the [Blockchain.com API plans page](https://www.blockchain.com/explorer/pricing). The key is sent in the `X-Explorer-Auth-Key` header, as documented in the [Explorer API reference](https://www.blockchain.com/explorer/docs).
+3. **Blockchain Explorer API.** Create an account and generate an Explorer API key, as described on the [Explorer API plans page](https://www.blockchain.com/explorer/pricing). The key is sent in the `X-Explorer-Auth-Key` header, as documented in the [Explorer API reference](https://www.blockchain.com/explorer/docs).
 
 Copy each value into the matching line of `.env`, with no quotes and no spaces:
 
@@ -131,10 +131,10 @@ Free limits change over time. The official documentation prevails over this tabl
 | Provider | Free limit | Source |
 |---|---|---|
 | Etherscan (API V2) | 3 calls/second and up to 100,000 calls/day, on selected chains. Requests are blocked at the daily limit. The client spaces its own requests 0.5 s apart to stay under the per-second limit | [Etherscan rate limits](https://docs.etherscan.io/resources/rate-limits) |
-| Blockchain.com (Explorer API) | On 2026-11-22, the response headers reported 5 requests/second and 1,000 requests/day both without a key and with a free key. The pricing page lists 3 requests/second and 300 requests/day for the free plan | [Blockchain.com API plans](https://www.blockchain.com/explorer/pricing), [Explorer API reference](https://www.blockchain.com/explorer/docs) |
+| Blockchain Explorer API | On 2026-11-22, the response headers reported 5 requests/second and 1,000 requests/day both without a key and with a free key. The pricing page lists 3 requests/second and 300 requests/day for the free plan | [Explorer API plans](https://www.blockchain.com/explorer/pricing), [Explorer API reference](https://www.blockchain.com/explorer/docs) |
 | CoinGecko (Demo plan) | 100 calls/minute. Historical data on the Basic plan is restricted to the past 2 years | [CoinGecko errors and rate limits](https://docs.coingecko.com/docs/common-errors-rate-limit), [Coin historical data](https://docs.coingecko.com/v3.0.1/reference/coins-id-history) |
 | mempool.space | Public instance, no key. Limits are not published as fixed figures | [mempool.space REST API](https://mempool.space/docs/api/rest) |
-| Blockscout | Public instance, no key. Limits depend on the instance | [Blockscout APIs](https://docs.blockscout.com/devs/apis) |
+| Blockscout | Public instance, no key. Limits depend on the instance and are described in the Blockscout API documentation | [Blockscout APIs](https://docs.blockscout.com/devs/apis) |
 | Routescan | Etherscan-compatible API, no key. The free tier is limited per second and per day, and the figures depend on the network; check the Routescan documentation for Ethereum before relying on them | [Routescan](https://routescan.io/) |
 | WalletExplorer | Public API, no key. The documentation states no request limit today, but the service may apply limits and answer HTTP 429 | [WalletExplorer API](https://www.walletexplorer.com/api) |
 
@@ -147,6 +147,45 @@ ftm COMMAND [ARGUMENTS]
 ```
 
 Examples use the Bitcoin genesis address and a public Ethereum address. Output values below are illustrative and change with the chain state.
+
+### balance
+
+Shows the current balance.
+
+| Argument | Meaning |
+|---|---|
+| `address` | Bitcoin or Ethereum address |
+| `--provider NAME` | Selects the data source. Accepted values are `mempool.space`, `blockscout`, `etherscan`, `blockchain.com` and `routescan`. Default: the open provider of the chain |
+| `--usd` | Also shows the value in US dollars at today's price. Requires `COINGECKO_API_KEY` |
+
+```powershell
+uv run ftm balance 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+uv run ftm balance 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --provider etherscan --usd
+```
+
+```text
+Balance: 72.30 BTC (source: mempool.space)
+```
+
+### cluster
+
+Reports the wallet cluster that a Bitcoin address or transaction belongs to, using the public [WalletExplorer API](https://www.walletexplorer.com/api). No API key and no `.env` file are needed, and any configured keys are ignored. The API covers Bitcoin only.
+
+| Argument | Meaning |
+|---|---|
+| `argument` | Bitcoin address, or transaction ID (txid) of 64 hexadecimal characters, in upper or lower case |
+
+```powershell
+uv run ftm cluster 3NhWGcJipDfDEPYHxbcpEXJRLiYC9RANmL
+```
+```text
+Type: address
+Label: Bitstamp.net
+```
+
+For a txid, the output also lists one `Output:` line per output that has a wallet, in the form `Output: ADDRESS -> wallet WALLET_ID (LABEL)`. The output carries only the `Type`, `Label` and `Output` lines. A label points to a service or cluster, not a person, and clustering is heuristic. When nothing is found, the output is `Result: no cluster found` (or `Result: transaction not found`) and the exit code is 0. A coin other than Bitcoin or an unrecognized argument exits with code 2. HTTP 429 or any other provider failure exits with code 1, without retrying.
+
+WalletExplorer documents no request limit today, but limits may change and the service may answer HTTP 429. The official documentation prevails over this text.
 
 ### detect
 
@@ -162,25 +201,6 @@ uv run ftm detect 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
 
 ```text
 Detected coin: Bitcoin
-```
-
-### balance
-
-Shows the current balance.
-
-| Argument | Meaning |
-|---|---|
-| `address` | Bitcoin or Ethereum address |
-| `--provider NAME` | One of `mempool.space`, `blockscout`, `etherscan`, `blockchain.com`, `routescan`. Default: the open provider of the chain |
-| `--usd` | Also shows the value in US dollars at today's price. Requires `COINGECKO_API_KEY` |
-
-```powershell
-uv run ftm balance 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
-uv run ftm balance 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --provider etherscan --usd
-```
-
-```text
-Balance: 72.30 BTC (source: mempool.space)
 ```
 
 ### history
@@ -199,6 +219,48 @@ uv run ftm history 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --limit 10 --provi
 ```
 
 On Ethereum, `kind` distinguishes native transfers, token transfers, internal transactions and contract calls.
+
+### patterns
+
+Looks for peel chains, CoinJoin transactions and address poisoning in the recent transactions of the address. See [Pattern heuristics](#pattern-heuristics).
+
+| Argument | Meaning |
+|---|---|
+| `address` | Address to analyze. Also taken as the potential poisoning victim |
+| `--limit N` | Maximum transactions to fetch. Default: 25 |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
+
+```powershell
+uv run ftm patterns 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+```
+
+```text
+address_poisoning: 0x..., 0x...
+  0x... mimics previously used address 0x... (same first 4 and last 4 characters) and sent 0 (heuristic)
+```
+
+When nothing matches, the output is `No patterns found. Results are heuristics, not proof.`
+
+### report
+
+Runs a trace and writes a Markdown report with an evidence table (hash, UTC date, source, note) and the pattern findings.
+
+| Argument | Meaning |
+|---|---|
+| `address` | Origin address |
+| `--hops N` | Maximum distance from the origin. Default: 3 |
+| `--out FILE` | Writes the report to this file. Default: standard output |
+| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
+
+```powershell
+uv run ftm report 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa --hops 2 --out report.md
+```
+
+```text
+Report written to report.md
+```
+
+The report layout is deterministic: the same data always yields the same text, and the evidence table can be parsed back without loss.
 
 ### trace
 
@@ -251,67 +313,6 @@ Token transfers: not reported by etherscan for a single transaction
 Source: etherscan
 ```
 A non-Ethereum or malformed hash exits with code 2. A provider failure exits with code 1.
-### cluster
-
-Reports the wallet cluster that a Bitcoin address or transaction belongs to, using the public [WalletExplorer API](https://www.walletexplorer.com/api). No API key and no `.env` file are needed, and any configured keys are ignored. The API covers Bitcoin only.
-
-| Argument | Meaning |
-|---|---|
-| `argument` | Bitcoin address, or transaction ID (txid) of 64 hexadecimal characters, in upper or lower case |
-
-```powershell
-uv run ftm cluster 1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s
-```
-```text
-Type: address
-Label: Binance.com
-```
-
-For a txid, the output also lists one `Output:` line per output that has a wallet, in the form `Output: ADDRESS -> wallet WALLET_ID (LABEL)`. The output carries only the `Type`, `Label` and `Output` lines. A label points to a service or cluster, not a person, and clustering is heuristic. When nothing is found, the output is `Result: no cluster found` (or `Result: transaction not found`) and the exit code is 0. A coin other than Bitcoin or an unrecognized argument exits with code 2. HTTP 429 or any other provider failure exits with code 1, without retrying.
-
-WalletExplorer documents no request limit today, but limits may change and the service may answer HTTP 429. The official documentation prevails over this text.
-
-### patterns
-
-Looks for peel chains, CoinJoin transactions and address poisoning in the recent transactions of the address. See [Pattern heuristics](#pattern-heuristics).
-
-| Argument | Meaning |
-|---|---|
-| `address` | Address to analyze. Also taken as the potential poisoning victim |
-| `--limit N` | Maximum transactions to fetch. Default: 25 |
-| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
-
-```powershell
-uv run ftm patterns 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-```
-
-```text
-address_poisoning: 0x..., 0x...
-  0x... mimics previously used address 0x... (same first 4 and last 4 characters) and sent 0 (heuristic)
-```
-
-When nothing matches, the output is `No patterns found. Results are heuristics, not proof.`
-
-### report
-
-Runs a trace and writes a Markdown report with an evidence table (hash, UTC date, source, note) and the pattern findings.
-
-| Argument | Meaning |
-|---|---|
-| `address` | Origin address |
-| `--hops N` | Maximum distance from the origin. Default: 3 |
-| `--out FILE` | Writes the report to this file. Default: standard output |
-| `--provider NAME` | Same choices as in `balance`. Default: the open provider of the chain |
-
-```powershell
-uv run ftm report 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa --hops 2 --out report.md
-```
-
-```text
-Report written to report.md
-```
-
-The report layout is deterministic: the same data always yields the same text, and the evidence table can be parsed back without loss.
 
 ## Pattern heuristics
 

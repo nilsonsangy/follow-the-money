@@ -45,6 +45,11 @@ _KEY_VARIABLES = ("ETHERSCAN_API_KEY", "BLOCKCHAIN_API_KEY", "COINGECKO_API_KEY"
 _PROVIDER_CHOICES = ("mempool.space", "blockscout", "etherscan", "blockchain.com", "routescan")
 _COIN_TO_CHAIN = {"Bitcoin": "bitcoin", "Ethereum": "ethereum"}
 _UNIT = {"bitcoin": "BTC", "ethereum": "ETH"}
+_PROVIDER_HELP = "data provider to query (default: the open provider of the chain)"
+_LIMIT_HELP = f"maximum number of transactions to fetch (default: {DEFAULT_LIMIT})"
+_HOPS_HELP = f"maximum distance from the origin address, in hops (default: {DEFAULT_HOPS})"
+_ADDRESS_HELP = "Bitcoin or Ethereum address"
+_DETECT_ADDRESS_HELP = "wallet address of Bitcoin, Ethereum, Litecoin or Monero (the coin is detected from the format)"
 
 
 class _InputError(Exception):
@@ -68,56 +73,105 @@ def _positive(text: str) -> int:
     return value
 
 
+class AlphabeticalHelpFormatter(argparse.HelpFormatter):
+    """Help formatter with a predictable order.
+
+    ``-h/--help`` comes first, positional arguments keep the order of use,
+    options are sorted by long name without dashes, and subcommands are sorted
+    by name. Only the display order changes; parsing is untouched.
+    """
+
+    @staticmethod
+    def _long_name(action: argparse.Action) -> str:
+        long = next(
+            (s for s in action.option_strings if s.startswith("--")),
+            action.option_strings[0],
+        )
+        return long.lstrip("-")
+
+    def add_arguments(self, actions: Any) -> None:
+        actions = list(actions)
+        positionals = [a for a in actions if not a.option_strings]
+        options = [a for a in actions if a.option_strings]
+        help_actions = [a for a in options if "-h" in a.option_strings]
+        rest = sorted(
+            (a for a in options if a not in help_actions), key=self._long_name
+        )
+        super().add_arguments(positionals + help_actions + rest)
+
+    def _iter_indented_subactions(self, action: argparse.Action) -> Any:
+        try:
+            subactions = action._get_subactions()
+        except AttributeError:
+            return
+        self._indent()
+        yield from sorted(subactions, key=lambda a: str(a.metavar or a.dest))
+        self._dedent()
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the parser with every command."""
     parser = argparse.ArgumentParser(
         prog="ftm",
+        formatter_class=AlphabeticalHelpFormatter,
         description="Cryptocurrency address detection, balance, history, tracing and pattern analysis.",
     )
-    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    commands = parser.add_subparsers(
+        dest="command", required=True, metavar="COMMAND", help="command to run"
+    )
 
-    detect = commands.add_parser("detect", help="detect the coin of an address")
-    detect.add_argument("address")
+    def add_command(name: str, *, help: str) -> argparse.ArgumentParser:
+        """Add a subcommand whose description repeats its one-line help."""
+        return commands.add_parser(
+            name, help=help, description=help[0].upper() + help[1:] + ".",
+            formatter_class=AlphabeticalHelpFormatter,
+        )
 
-    balance = commands.add_parser("balance", help="show the balance of an address")
-    balance.add_argument("address")
-    balance.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    detect = add_command("detect", help="detect the coin of an address")
+    detect.add_argument("address", help=_DETECT_ADDRESS_HELP)
+
+    balance = add_command("balance", help="show the balance of an address")
+    balance.add_argument("address", help=_ADDRESS_HELP)
+    balance.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
     balance.add_argument(
         "--usd", action="store_true", help="also show the value in US dollars at today's price"
     )
 
-    history = commands.add_parser("history", help="list recent transactions, newest first")
-    history.add_argument("address")
-    history.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
-    history.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    history = add_command("history", help="list recent transactions, newest first")
+    history.add_argument("address", help=_ADDRESS_HELP)
+    history.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT, help=_LIMIT_HELP)
+    history.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
 
-    trace_cmd = commands.add_parser("trace", help="trace outgoing funds up to N hops")
-    trace_cmd.add_argument("address")
-    trace_cmd.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
-    trace_cmd.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
-    trace_cmd.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    trace_cmd = add_command("trace", help="trace outgoing funds up to N hops")
+    trace_cmd.add_argument("address", help=_ADDRESS_HELP)
+    trace_cmd.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS, help=_HOPS_HELP)
+    trace_cmd.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT, help=_LIMIT_HELP)
+    trace_cmd.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
 
-    patterns = commands.add_parser(
+    patterns = add_command(
         "patterns", help="look for peel chains, CoinJoin and address poisoning"
     )
-    patterns.add_argument("address")
-    patterns.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT)
-    patterns.add_argument("--provider", choices=_PROVIDER_CHOICES)
+    patterns.add_argument("address", help=_ADDRESS_HELP)
+    patterns.add_argument("--limit", type=_positive, default=DEFAULT_LIMIT, help=_LIMIT_HELP)
+    patterns.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
 
-    report = commands.add_parser("report", help="write a Markdown trace report")
-    report.add_argument("address")
-    report.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS)
-    report.add_argument("--out", help="write the report to this file instead of stdout")
-    report.add_argument("--provider", choices=_PROVIDER_CHOICES)
-    tx = commands.add_parser(
+    report = add_command("report", help="write a Markdown trace report")
+    report.add_argument("address", help=_ADDRESS_HELP)
+    report.add_argument("--hops", type=_non_negative, default=DEFAULT_HOPS, help=_HOPS_HELP)
+    report.add_argument("--out", metavar="FILE", help="write the report to this file instead of stdout")
+    report.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
+    tx = add_command(
         "tx", help="show one Ethereum transaction: gas payer, fee and internal transfers"
     )
-    tx.add_argument("hash")
-    tx.add_argument("--provider", choices=_PROVIDER_CHOICES)
-    cluster = commands.add_parser(
+    tx.add_argument("hash", help="Ethereum transaction hash (0x followed by 64 hexadecimal characters)")
+    tx.add_argument("--provider", choices=_PROVIDER_CHOICES, help=_PROVIDER_HELP)
+    cluster = add_command(
         "cluster", help="look up the wallet cluster of a Bitcoin address or transaction id"
     )
-    cluster.add_argument("argument")
+    cluster.add_argument(
+        "argument",
+        help="Bitcoin address or transaction id (64 hexadecimal characters) to look up in WalletExplorer",
+    )
     return parser
 
 
